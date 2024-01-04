@@ -1,0 +1,30 @@
+
+[workspace]
+members = ["./api", "./entities", "./migration"]
+edition = "2021"
+
+[workspace.dependencies]
+sea-orm = { version = "0.12.10", features = [
+    "sqlx-mysql",
+    "runtime-async-std-native-tls",
+    "macros",
+] }
+cw-orch = { path = "../cw-orchestrator/cw-orch", features = ["daemon"] }
+tokio = { version = "1.35.0", features = ["full"] }
+axum = "0.7.2"
+pretty_env_logger = "0.5.0"
+# cw-orch = { version = "0.19.0", features = ["daemon"] }
+tonic = "0.10.2"
+anyhow = "1.0.75"
+cosmos-sdk-proto = "0.20.0"
+serde_json = "1.0.108"
+dotenv = "0.15.0"
+ibc-chain-registry = "0.25.0"
+thiserror = "1.0.51"
+axum-macros = "0.4.0"
+redis = { version = "0.24.0", features = ["keep-alive"] }
+serde = { version = "1.0.193", features = ["derive"] }
+redis_serde_json = { git = "https://github.com/clia/redis_serde_json.git" }
+log = "0.4.20"
+futures = "0.3.29"
+entities = { path = "./entities" }

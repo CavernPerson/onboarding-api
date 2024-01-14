@@ -115,6 +115,10 @@ pub async fn tx_was_deposited(
         .one(db)
         .await?;
 
+    if existing_tx.is_none() {
+        return Ok(());
+    }
+
     // Into ActiveModel
     let mut existing_tx: events_tx::ActiveModel = existing_tx.unwrap().into();
 

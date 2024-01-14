@@ -5,7 +5,7 @@ use std::str::FromStr;
 
 #[derive(Serialize)]
 pub struct CosmosBasicAllowance {
-    spend_limit: Vec<cosmwasm_std::Coin>,
+    pub spend_limit: Vec<cosmwasm_std::Coin>,
 }
 impl TryInto<CosmosBasicAllowance> for BasicAllowance {
     fn try_into(self) -> Result<CosmosBasicAllowance, Self::Error> {

@@ -1,7 +1,9 @@
 use crate::error::ApiError;
 use crate::types::grants::{BasicAllowanceGrant, QuerierGrant};
 use cosmos_sdk_proto::cosmos::base::v1beta1::Coin;
-use cosmos_sdk_proto::cosmos::feegrant::v1beta1::{BasicAllowance, MsgGrantAllowance};
+use cosmos_sdk_proto::cosmos::feegrant::v1beta1::{
+    BasicAllowance, MsgGrantAllowance, MsgRevokeAllowance,
+};
 use cosmos_sdk_proto::traits::{Message, Name};
 use cosmos_sdk_proto::Any;
 use cw_orch::daemon::queriers::{DaemonQuerier, Feegrant};
@@ -9,16 +11,17 @@ use cw_orch::daemon::DaemonAsync;
 use tokio::sync::MutexGuard;
 use tonic::transport::Channel;
 
-const GRANTER: &str = "terra1v7k3k4qw9y9juwma2d3rw6psmnd3vyg8sehwx6";
 const FEE_DENOM: &str = "uluna";
 const FEE_GRANT_AMOUNT: u128 = 100_000;
+const MIN_FEE_GRANT_AMOUNT: u128 = 20_000;
 
 pub async fn get_current_fee_grants(
     chain: Channel,
+    granter: String,
     grantee: String,
 ) -> Result<Option<QuerierGrant>, ApiError> {
     let fee_grant = Feegrant::new(chain.clone());
-    let grant = fee_grant.allowance(GRANTER, grantee).await.ok();
+    let grant = fee_grant.allowance(granter, grantee).await.ok();
 
     // We try to decode the grant basic allowance
     let basic_allowance = grant
@@ -48,6 +51,37 @@ pub async fn grant(
     daemon: &MutexGuard<'_, DaemonAsync>,
     grantee: String,
 ) -> Result<String, ApiError> {
+    let granter = daemon.sender().to_string();
+    // Check the existing fee grants this address has
+    let existing_grants =
+        get_current_fee_grants(daemon.channel().clone(), granter.clone(), grantee.clone()).await?;
+
+    // We don't set a grant if there's already a grant and if it's sufficient
+    if let Some(QuerierGrant::BasicAllowance(allowance)) = &existing_grants {
+        if let Some(allowance) = &allowance.allowance {
+            let amount = allowance
+                .spend_limit
+                .iter()
+                .find(|c| c.denom == FEE_DENOM)
+                .map(|c| c.amount)
+                .unwrap_or_default();
+            if amount.u128() >= MIN_FEE_GRANT_AMOUNT {
+                return Ok("Already enough allowance for this address".to_string());
+            }
+        }
+    }
+    let mut msgs = vec![];
+    if existing_grants.is_some() {
+        msgs.push(Any {
+            type_url: MsgRevokeAllowance::type_url(),
+            value: MsgRevokeAllowance {
+                granter: granter.clone(),
+                grantee: grantee.clone(),
+            }
+            .encode_to_vec(),
+        })
+    }
+
     let allowance_type = BasicAllowance {
         spend_limit: vec![Coin {
             amount: FEE_GRANT_AMOUNT.to_string(),
@@ -57,24 +91,20 @@ pub async fn grant(
     };
 
     let fee_grant = MsgGrantAllowance {
-        granter: GRANTER.to_string(),
-        grantee,
+        granter: granter.clone(),
+        grantee: grantee.clone(),
         allowance: Some(Any {
             type_url: BasicAllowance::type_url(),
             value: allowance_type.encode_to_vec(),
         }),
     };
 
-    daemon
-        .sender
-        .commit_tx_any(
-            vec![Any {
-                type_url: MsgGrantAllowance::type_url(),
-                value: fee_grant.encode_to_vec(),
-            }],
-            None,
-        )
-        .await?;
+    msgs.push(Any {
+        type_url: MsgGrantAllowance::type_url(),
+        value: fee_grant.encode_to_vec(),
+    });
+
+    daemon.sender.commit_tx_any(msgs, None).await?;
 
     Ok("Tx succesfully submitted".to_string())
 }

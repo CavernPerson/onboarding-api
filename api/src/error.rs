@@ -38,6 +38,12 @@ pub enum ApiError {
 
     #[error(transparent)]
     StdError(#[from] StdError),
+
+    #[error(transparent)]
+    Utf6Error(#[from] std::str::Utf8Error),
+
+    #[error("Generic Error : {0}")]
+    GenericErr(String),
 }
 
 pub type ApiResult<T = ()> = Result<T, ApiError>;

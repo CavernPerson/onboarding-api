@@ -1,21 +1,25 @@
-use crate::db_helpers::{add_txs_to_db, events_key, set_events_info};
+use std::sync::Arc;
+
+use crate::db_helpers::add_txs_to_db;
 use crate::error::ApiError;
+use crate::{AppState, PAGINATION_LIMIT};
+use axum::extract::{Path, State};
+use axum::Json;
 use cosmos_sdk_proto::cosmos::tx::v1beta1::service_client::ServiceClient;
 use cosmos_sdk_proto::cosmos::tx::v1beta1::{GetTxsEventRequest, GetTxsEventResponse, OrderBy};
 
-use entities::prelude::*;
-use entities::{events_info, events_tx};
+use entities::events_tx;
 use futures::future::try_join_all;
 use redis_serde_json::RedisJsonValue;
-use sea_orm::{ColumnTrait, DatabaseConnection, EntityTrait, PaginatorTrait, QueryFilter};
+use sea_orm::{
+    ColumnTrait, DatabaseConnection, EntityTrait, PaginatorTrait, QueryFilter, QueryOrder,
+};
 use serde::{Deserialize, Serialize};
 use tonic::transport::Channel;
 #[derive(Default, Serialize, Deserialize, RedisJsonValue)]
 pub struct EventsStatus {
     current_page: u64,
 }
-
-const PAGINATION_LIMIT: u64 = 1;
 
 /// Gets the transactions on the events page
 async fn get_last_txs(
@@ -32,7 +36,7 @@ async fn get_last_txs(
         page,
         limit: PAGINATION_LIMIT,
         pagination: None, // This is not used, so good.
-        order_by: OrderBy::Asc.into(),
+        order_by: OrderBy::Desc.into(),
     };
 
     let tx_result = client.get_txs_event(request.clone()).await?.into_inner();
@@ -40,14 +44,21 @@ async fn get_last_txs(
     Ok(tx_result)
 }
 
+fn events_from_address(address: &String) -> Vec<String> {
+    vec![format!("fungible_token_packet.receiver='{}'", address)]
+}
+
 pub async fn fetch_new_txs(
-    events: Vec<String>,
+    address: String,
     channel: Channel,
     db: &DatabaseConnection,
 ) -> Result<(), ApiError> {
+    println!("address {}", address);
+    let events = events_from_address(&address);
+
     // First we query the existing transactions
     let current_events_card = events_tx::Entity::find()
-        .filter(events_tx::Column::SourceEvents.eq(events_key(events.clone())))
+        .filter(events_tx::Column::Address.eq(address.clone()))
         .count(db)
         .await?;
 
@@ -71,7 +82,7 @@ pub async fn fetch_new_txs(
         let new_txs_filter = try_join_all(fetched_txs.iter().map(|tx| async {
             Ok::<_, ApiError>(
                 events_tx::Entity::find()
-                    .filter(events_tx::Column::SourceEvents.eq(events_key(events.clone())))
+                    .filter(events_tx::Column::Address.eq(address.clone()))
                     .filter(events_tx::Column::TxHash.eq(tx.txhash.clone()))
                     .count(db)
                     .await?
@@ -95,9 +106,9 @@ pub async fn fetch_new_txs(
         );
 
         let temp_count = local_count + new_txs.len() as u64;
-        add_txs_to_db(events.clone(), new_txs, db).await?;
+        add_txs_to_db(address.clone(), new_txs, db).await?;
 
-        if temp_count == tx_result.total {
+        if temp_count >= tx_result.total {
             // If the number of element matches the total :
             // - We don't increment the page number as a page might be partially full
             // - We stop querying new transaction
@@ -107,12 +118,44 @@ pub async fn fetch_new_txs(
         // In any other case, we update the underlying object and try again for other transactions
         current_page += 1;
         local_count = temp_count;
-        set_events_info(
-            events.clone(),
-            current_events_state.clone(),
-            current_page,
-            db,
-        )
-        .await?
     }
+}
+
+// Fetches locally saved transactions
+pub async fn get_txs(
+    Path(address): Path<String>,
+    State(state): State<Arc<AppState>>,
+) -> Result<Json<Vec<events_tx::Model>>, ApiError> {
+    let all_txs = events_tx::Entity::find()
+        .filter(events_tx::Column::Address.eq(address.clone()))
+        .filter(events_tx::Column::KadoAmount.is_not_null())
+        // .filter(events_tx::Column::Executed.eq(false)) TODO
+        .order_by_desc(events_tx::Column::Timestamp)
+        .all(&state.db)
+        .await?;
+
+    Ok(Json(all_txs))
+}
+
+pub async fn get_tx_count(
+    Path(address): Path<String>,
+    State(state): State<Arc<AppState>>,
+) -> Result<Json<u64>, ApiError> {
+    let tx_count = events_tx::Entity::find()
+        .filter(events_tx::Column::Address.eq(address.clone()))
+        .count(&state.db)
+        .await?;
+
+    Ok(Json(tx_count))
+}
+
+pub async fn get_tx_total(
+    Path(address): Path<String>,
+    State(state): State<Arc<AppState>>,
+) -> Result<Json<u64>, ApiError> {
+    let events = events_from_address(&address);
+
+    let tx_result = get_last_txs(state.channel.clone(), events.clone(), 1).await?;
+
+    Ok(Json(tx_result.total))
 }

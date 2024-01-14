@@ -3,7 +3,7 @@ use sea_orm::FromJsonQueryResult;
 use serde::{Deserialize, Serialize};
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, FromJsonQueryResult)]
-pub struct TxLogs(Vec<TxLog>);
+pub struct TxLogs(pub Vec<TxLog>);
 
 impl From<Vec<AbciMessageLog>> for TxLogs {
     fn from(value: Vec<AbciMessageLog>) -> Self {

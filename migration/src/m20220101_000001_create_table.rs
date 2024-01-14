@@ -19,9 +19,23 @@ impl MigrationTrait for Migration {
                             .auto_increment()
                             .primary_key(),
                     )
-                    .col(ColumnDef::new(EventsTx::SourceEvents).string().not_null())
+                    .col(ColumnDef::new(EventsTx::Address).string().not_null())
                     .col(ColumnDef::new(EventsTx::TxHash).string().not_null())
                     .col(ColumnDef::new(EventsTx::TxEvents).json().not_null())
+                    .col(ColumnDef::new(EventsTx::Timestamp).string().not_null())
+                    .col(ColumnDef::new(EventsTx::KadoAmount).string())
+                    .col(
+                        ColumnDef::new(EventsTx::HasFeeGrant)
+                            .boolean()
+                            .not_null()
+                            .default(false),
+                    )
+                    .col(
+                        ColumnDef::new(EventsTx::Executed)
+                            .boolean()
+                            .not_null()
+                            .default(false),
+                    )
                     .to_owned(),
             )
             .await?;

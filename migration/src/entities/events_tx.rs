@@ -4,7 +4,11 @@ use sea_orm_migration::sea_orm::DeriveIden;
 pub enum EventsTx {
     Table,
     Id,
-    SourceEvents,
+    Address,
     TxHash,
     TxEvents,
+    Timestamp,
+    KadoAmount,
+    HasFeeGrant,
+    Executed,
 }

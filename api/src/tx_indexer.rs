@@ -129,7 +129,7 @@ pub async fn get_txs(
     let all_txs = events_tx::Entity::find()
         .filter(events_tx::Column::Address.eq(address.clone()))
         .filter(events_tx::Column::KadoAmount.is_not_null())
-        // .filter(events_tx::Column::Executed.eq(false)) TODO
+        .filter(events_tx::Column::Executed.eq(false))
         .order_by_desc(events_tx::Column::Timestamp)
         .all(&state.db)
         .await?;
